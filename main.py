@@ -36,7 +36,7 @@ async def cmd_start(message: types.Message):
     text = 'Привет, здесь у тебя есть последняя попытка купить мерч Вспышки этого года'
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары'), KeyboardButton(text='ℹ️ Инфо')]
+            [KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары')]
         ],
         resize_keyboard=True
     )
