@@ -8,7 +8,7 @@ import json
 from dotenv import load_dotenv
 load_dotenv()
 import os
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 router = Router()
 
@@ -23,6 +23,9 @@ class ProductForm(StatesGroup):
     price = State()
     photo = State()
     caption = State()
+
+class SetkaForm(StatesGroup):
+    photo = State()
 
 @router.message(Command('admin'))
 async def admin_panel(message: types.Message):
@@ -122,3 +125,27 @@ async def send_payment_link(message: types.Message):
                 except Exception as e:
                     print(f'Не удалось отправить пользователю {user.id}: {e}')
         await message.answer(f'Рассылка завершена. Сообщение отправлено {sent_count} пользователям с корзиной.')
+
+@router.message(Command('set_setka'))
+async def set_setka(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer('Нет доступа')
+        return
+    await message.answer('Отправьте фото размерной сетки')
+    await state.set_state(SetkaForm.photo)
+
+@router.message(SetkaForm.photo)
+async def process_setka_photo(message: types.Message, state: FSMContext):
+    if not message.photo:
+        await message.answer('Пришлите фото!')
+        return
+    file_id = message.photo[-1].file_id
+    from database.db import AsyncSessionLocal
+    from database.models import SizeSetka
+    async with AsyncSessionLocal() as session:
+        await session.execute(text('DELETE FROM size_setka'))  # всегда одна актуальная
+        setka = SizeSetka(photo=file_id)
+        session.add(setka)
+        await session.commit()
+    await message.answer('Размерная сетка обновлена!')
+    await state.clear()

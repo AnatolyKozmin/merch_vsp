@@ -34,6 +34,7 @@ async def show_products(message: types.Message, state: FSMContext):
         builder.button(text='➕', callback_data=f'add_{product.id}_{page}')
         builder.button(text='➡️', callback_data=f'next_{page}')
         builder.adjust(3)
+        builder.row(types.InlineKeyboardButton(text='Размерная сетка', callback_data='size_setka'))
         caption_text = f"<b>{product.name}</b>\n"
         caption_text += f"<b>Цена:</b> {product.price}\n"
         if product.caption:
@@ -71,6 +72,7 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
         builder.button(text='➕', callback_data=f'add_{product.id}_{page}')
         builder.button(text='➡️', callback_data=f'next_{page}')
         builder.adjust(3)
+        builder.row(types.InlineKeyboardButton(text='Размерная сетка', callback_data='size_setka'))
         caption_text = f"<b>{product.name}</b>\n"
         caption_text += f"<b>Цена:</b> {product.price}\n"
         if product.caption:
@@ -225,3 +227,28 @@ async def cart_del(callback: types.CallbackQuery, state: FSMContext):
             await callback.message.answer('Товар удалён из корзины.')
     await show_cart(callback.message, state)
     await callback.answer()
+
+@router.callback_query(lambda c: c.data == 'size_setka')
+async def show_size_setka(callback: types.CallbackQuery):
+    from database.db import AsyncSessionLocal
+    from database.models import SizeSetka
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(SizeSetka).order_by(SizeSetka.created_at.desc()))
+        setka = result.scalars().first()
+        if setka:
+            kb = types.InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [types.InlineKeyboardButton(text='⬅️', callback_data='prev_0'), types.InlineKeyboardButton(text='➡️', callback_data='next_0')],
+                    [types.InlineKeyboardButton(text='Размерная сетка', callback_data='size_setka')]
+                ]
+            )
+            await callback.message.edit_media(
+                types.InputMediaPhoto(
+                    media=setka.photo,
+                    caption='<b>Сетка размеров</b>',
+                    parse_mode='HTML'
+                ),
+                reply_markup=kb
+            )
+        else:
+            await callback.answer('Сетка размеров не загружена')

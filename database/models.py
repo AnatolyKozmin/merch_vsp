@@ -28,6 +28,8 @@ class Product(Base):
     palette = Column(JSONB, nullable=True)  # список цветов/смайликов
     photo = Column(String, nullable=True)   # ссылка на фото или file_id
     caption = Column(String, nullable=True) # подпись к фото
+    material = Column(String, nullable=True)  # материал товара
+    sizes_text = Column(String, nullable=True)  # строка с доступными размерами
     type = relationship('ProductType', back_populates='products')
     cart_items = relationship('Cart', back_populates='product')
 
@@ -41,3 +43,9 @@ class Cart(Base):
     quantity = Column(Integer, default=1)
     user = relationship('User', back_populates='cart_items')
     product = relationship('Product', back_populates='cart_items')
+
+class SizeSetka(Base):
+    __tablename__ = 'size_setka'
+    id = Column(Integer, primary_key=True)
+    photo = Column(String, nullable=False)  # file_id картинки
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
