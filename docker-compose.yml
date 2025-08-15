@@ -1,0 +1,27 @@
+version: '3.9'
+services:
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: merch_vsp_db
+      POSTGRES_USER: merch_vsp
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+  bot:
+    build: .
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DB_URL: postgresql+asyncpg://merch_vsp:1234@db:5432/merch_vsp_db
+      TOKEN: ${TOKEN}
+      ADMIN: ${ADMIN}
+    volumes:
+      - .:/app
+    command: bash -c "alembic upgrade head && python main.py"
+volumes:
+  db_data:
