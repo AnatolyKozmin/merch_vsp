@@ -18,10 +18,12 @@ class CartForm(StatesGroup):
 
 PRODUCTS_PAGE_SIZE = 1
 CART_PAGE_SIZE = 1
+AVAILABLE_SIZES = ['s', 'm', 'l', 'xl', '2xl']
 
 @router.message(lambda msg: msg.text == '🛍️ Товары')
 async def show_products(message: types.Message, state: FSMContext):
     page = 0
+    user_id = message.from_user.id
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Product).offset(page * PRODUCTS_PAGE_SIZE).limit(PRODUCTS_PAGE_SIZE))
         products = result.scalars().all()
@@ -29,9 +31,15 @@ async def show_products(message: types.Message, state: FSMContext):
             await message.answer('Товары не найдены')
             return
         product = products[0]
+        # Проверяем, есть ли товар в корзине
+        cart_result = await session.execute(select(Cart).where(Cart.user_id == user_id, Cart.product_id == product.id))
+        in_cart = cart_result.scalar_one_or_none() is not None
         builder = InlineKeyboardBuilder()
         builder.button(text='⬅️', callback_data=f'prev_{page}')
-        builder.button(text='➕', callback_data=f'add_{product.id}_{page}')
+        if in_cart:
+            builder.button(text='❌', callback_data=f'remove_{product.id}_{page}')
+        else:
+            builder.button(text='✅', callback_data=f'add_{product.id}_{page}')
         builder.button(text='➡️', callback_data=f'next_{page}')
         builder.adjust(3)
         builder.row(types.InlineKeyboardButton(text='Размерная сетка', callback_data='size_setka'))
@@ -52,6 +60,7 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
         page = max(0, int(callback.data.split('_')[1]) - 1)
     else:
         page = int(callback.data.split('_')[1]) + 1
+    user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
         total_result = await session.execute(select(Product))
         total_products = total_result.scalars().all()
@@ -59,7 +68,6 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
         if total_count == 0:
             await callback.answer('Товаров нет')
             return
-        # Циклическая пагинация
         if page < 0:
             page = total_count - 1
         if page >= total_count:
@@ -67,9 +75,14 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
         result = await session.execute(select(Product).offset(page * PRODUCTS_PAGE_SIZE).limit(PRODUCTS_PAGE_SIZE))
         products = result.scalars().all()
         product = products[0]
+        cart_result = await session.execute(select(Cart).where(Cart.user_id == user_id, Cart.product_id == product.id))
+        in_cart = cart_result.scalar_one_or_none() is not None
         builder = InlineKeyboardBuilder()
         builder.button(text='⬅️', callback_data=f'prev_{page}')
-        builder.button(text='➕', callback_data=f'add_{product.id}_{page}')
+        if in_cart:
+            builder.button(text='❌', callback_data=f'remove_{product.id}_{page}')
+        else:
+            builder.button(text='✅', callback_data=f'add_{product.id}_{page}')
         builder.button(text='➡️', callback_data=f'next_{page}')
         builder.adjust(3)
         builder.row(types.InlineKeyboardButton(text='Размерная сетка', callback_data='size_setka'))
@@ -83,54 +96,117 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
             parse_mode='HTML'
         )
         await callback.message.edit_media(media, reply_markup=builder.as_markup())
+        # Добавляем подсказку под фото
+        await callback.message.answer(
+            '<i>Для просмотра товаров пользуйтесь стрелочками ⬅️➡️</i>',
+            parse_mode='HTML'
+        )
     await callback.answer()
 
 @router.callback_query(lambda c: c.data.startswith('add_'))
 async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
     product_id, page = callback.data.split('_')[1:]
-    await state.set_state(CartForm.fio)
-    await state.update_data(product_id=int(product_id), page=int(page))
-    await callback.message.answer('Введите ФИО:')
+    user_id = callback.from_user.id
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Cart).where(Cart.user_id == user_id))
+        cart_items = result.scalars().all()
+        if cart_items:
+            # Показываем клавиатуру с размерами
+            kb = types.InlineKeyboardMarkup(
+                inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_{product_id}') for size in AVAILABLE_SIZES]]
+            )
+            await callback.message.answer('Выберите размер:', reply_markup=kb)
+            await state.update_data(product_id=int(product_id), page=int(page))
+        else:
+            await state.set_state(CartForm.fio)
+            await state.update_data(product_id=int(product_id), page=int(page))
+            await callback.message.answer('Введите ФИО:')
     await callback.answer()
 
-@router.message(CartForm.fio)
-async def process_fio(message: types.Message, state: FSMContext):
-    await state.update_data(fio=message.text)
-    await message.answer('Введите номер телефона:')
-    await state.set_state(CartForm.phone)
-
-@router.message(CartForm.phone)
-async def process_phone(message: types.Message, state: FSMContext):
-    await state.update_data(phone=message.text)
-    await message.answer('Выберите размер одежды (S/M/L):')
-    await state.set_state(CartForm.size)
-
-@router.message(CartForm.size)
-async def process_size(message: types.Message, state: FSMContext):
+@router.callback_query(lambda c: c.data.startswith('size_') and c.data.endswith('_form'))
+async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
+    _, size, _ = callback.data.split('_')
+    if size not in AVAILABLE_SIZES:
+        await callback.answer('Недопустимый размер!')
+        return
     data = await state.get_data()
     async with AsyncSessionLocal() as session:
         cart_item = Cart(
-            user_id=message.from_user.id,
+            user_id=callback.from_user.id,
             product_id=data['product_id'],
-            size=message.text,
-            # color можно добавить через отдельный callback
+            size=size,
+            quantity=1
         )
         session.add(cart_item)
         await session.commit()
-        # Получаем данные о товаре для записи в Google Sheets
         product_result = await session.execute(select(Product).where(Product.id == data['product_id']))
         product = product_result.scalar_one_or_none()
         if product:
             add_order(
-                user_id=message.from_user.id,
-                username=message.from_user.username or '',
+                user_id=callback.from_user.id,
+                username=callback.from_user.username or '',
                 product=product.name,
-                size=message.text,
-                color=cart_item.color or '',
+                size=size,
+                color='',
                 quantity=cart_item.quantity
             )
-    await message.answer('Товар добавлен в корзину!')
-    await state.clear()
+        await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=types.ReplyKeyboardRemove())
+        await state.clear()
+    await callback.answer()
+
+@router.message(CartForm.fio)
+async def process_fio(message: types.Message, state: FSMContext):
+    kb = types.ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text='Отмена')]],
+        resize_keyboard=True
+    )
+    await state.update_data(fio=message.text)
+    await message.answer('Введите номер телефона:', reply_markup=kb)
+    await state.set_state(CartForm.phone)
+
+@router.message(CartForm.phone)
+async def process_phone(message: types.Message, state: FSMContext):
+    if message.text == 'Отмена':
+        await message.answer('Добавление товара отменено.', reply_markup=types.ReplyKeyboardRemove())
+        await state.clear()
+        return
+    await state.update_data(phone=message.text)
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_form') for size in AVAILABLE_SIZES]]
+    )
+    await message.answer('Выберите размер:', reply_markup=kb)
+    # Не переводим в CartForm.size, обработка через callback
+
+@router.callback_query(lambda c: c.data.startswith('size_') and c.data.endswith('_form'))
+async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
+    _, size, _ = callback.data.split('_')
+    if size not in AVAILABLE_SIZES:
+        await callback.answer('Недопустимый размер!')
+        return
+    data = await state.get_data()
+    async with AsyncSessionLocal() as session:
+        cart_item = Cart(
+            user_id=callback.from_user.id,
+            product_id=data['product_id'],
+            size=size,
+            quantity=1
+        )
+        session.add(cart_item)
+        await session.commit()
+        product_result = await session.execute(select(Product).where(Product.id == data['product_id']))
+        product = product_result.scalar_one_or_none()
+        if product:
+            add_order(
+                user_id=callback.from_user.id,
+                username=callback.from_user.username or '',
+                product=product.name,
+                size=size,
+                color='',
+                quantity=cart_item.quantity
+            )
+        await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=types.ReplyKeyboardRemove())
+        await state.clear()
+    await callback.answer()
 
 @router.message(lambda msg: msg.text == '🛒 Корзина')
 async def show_cart(message: types.Message, state: FSMContext):
@@ -228,7 +304,7 @@ async def cart_del(callback: types.CallbackQuery, state: FSMContext):
     await show_cart(callback.message, state)
     await callback.answer()
 
-@router.callback_query(lambda c: c.data == 'size_setka')
+@router.callback_query(lambda c: c.data.startswith('size_setka'))
 async def show_size_setka(callback: types.CallbackQuery):
     from database.db import AsyncSessionLocal
     from database.models import SizeSetka
@@ -252,3 +328,56 @@ async def show_size_setka(callback: types.CallbackQuery):
             )
         else:
             await callback.answer('Сетка размеров не загружена')
+
+@router.callback_query(lambda c: c.data.startswith('remove_'))
+async def confirm_remove(callback: types.CallbackQuery):
+    product_id, page = callback.data.split('_')[1:]
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text='Да', callback_data=f'confirm_remove_{product_id}_{page}'),
+             types.InlineKeyboardButton(text='Нет', callback_data=f'cancel_remove_{product_id}_{page}')]
+        ]
+    )
+    await callback.message.answer('Вы уверены, что хотите удалить товар из корзины?', reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith('confirm_remove_'))
+async def remove_from_cart(callback: types.CallbackQuery):
+    product_id, page = callback.data.split('_')[2:]
+    user_id = callback.from_user.id
+    async with AsyncSessionLocal() as session:
+        cart_result = await session.execute(select(Cart).where(Cart.user_id == user_id, Cart.product_id == int(product_id)))
+        cart_item = cart_result.scalar_one_or_none()
+        if cart_item:
+            await session.delete(cart_item)
+            await session.commit()
+            # Google Sheets
+            product_result = await session.execute(select(Product).where(Product.id == int(product_id)))
+            product = product_result.scalar_one_or_none()
+            if product:
+                remove_order(
+                    user_id=user_id,
+                    product=product.name,
+                    size=cart_item.size,
+                    color=cart_item.color or ''
+                )
+            await callback.message.answer('Товар удалён из корзины.')
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith('cancel_remove_'))
+async def cancel_remove(callback: types.CallbackQuery):
+    await callback.message.answer('Удаление отменено.')
+    await callback.answer()
+
+@router.message(lambda msg: msg.text == 'Инфо ℹ️')
+async def info_menu(message: types.Message):
+    text = (
+        'ℹ️ <b>Инфо</b>\n\n'
+        'В этом чат-боте вы можете сделать <b>предзаказ</b> на мерч фестиваля «Вспышка».\n'
+        'Добавив товар в корзину, вы оформляете предзаказ, после чего в течение недели вам придет ссылка на оплату.\n\n'
+        'Для просмотра товаров рекомендуем нажать на кнопку <b>Товары</b> и воспользоваться стрелочками для перелистывания.\n\n'
+        'Вопрос <b>доставки</b> будет решаться в индивидуальном порядке: либо самовывоз, либо оформление через Яндекс.\n\n'
+        'По вопросам работы бота обращаться к <a href="https://t.me/yanejettt">@yanejettt</a>' \
+        'По вопросам заказа обращаться к @shamonova_a'
+    )
+    await message.answer(text, parse_mode='HTML')
