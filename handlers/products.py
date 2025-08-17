@@ -115,12 +115,23 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
 async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
     product_id, page = callback.data.split('_')[1:]
     user_id = callback.from_user.id
-    # Просто добавляем товар в корзину без сбора данных
+    # Сначала спрашиваем размер
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'add_size_{size}_{product_id}') for size in AVAILABLE_SIZES]]
+    )
+    await callback.message.answer('Выберите размер:', reply_markup=kb)
+    await callback.answer()
+
+# После выбора размера — добавляем товар в корзину
+@router.callback_query(lambda c: c.data.startswith('add_size_'))
+async def add_to_cart_with_size(callback: types.CallbackQuery, state: FSMContext):
+    _, _, size, product_id = callback.data.split('_')
+    user_id = callback.from_user.id
     async with AsyncSessionLocal() as session:
         cart_item = Cart(
             user_id=user_id,
             product_id=int(product_id),
-            size=None,
+            size=size,
             quantity=1
         )
         session.add(cart_item)
@@ -130,7 +141,7 @@ async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
         keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары')]],
         resize_keyboard=True
     )
-    await callback.message.answer('Товар добавлен в корзину!', reply_markup=kb)
+    await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=kb)
     await callback.answer()
 
 
@@ -262,6 +273,7 @@ async def paginate_cart(callback: types.CallbackQuery, state: FSMContext):
             builder.button(text='🗑️ Удалить', callback_data=f'cart_del_{item.id}_{page}')
             builder.button(text='➡️', callback_data=f'cart_next_{page}')
             builder.adjust(3)
+            builder.row(types.InlineKeyboardButton(text='Оформить заказ', callback_data='checkout'))
             caption_text = f"<b>{product.name}</b>\n"
             caption_text += f"<b>Размер:</b> {item.size}\n"
             caption_text += f"<b>Цвет:</b> {item.color or 'Не выбран'}\n"
