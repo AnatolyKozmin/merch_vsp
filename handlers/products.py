@@ -113,7 +113,7 @@ async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     # Всегда сначала спрашиваем размер
     kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_{product_id}') for size in AVAILABLE_SIZES]]
+        inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_form') for size in AVAILABLE_SIZES]]
     )
     await callback.message.answer('Выберите размер:', reply_markup=kb)
     await state.set_state(CartForm.size)
