@@ -113,7 +113,9 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(lambda c: c.data.startswith('add_'))
 async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
-    product_id, page = callback.data.split('_')[1:]
+    parts = callback.data.split('_')
+    product_id = parts[-2]
+    page = parts[-1]
     user_id = callback.from_user.id
     # Сначала спрашиваем размер
     kb = types.InlineKeyboardMarkup(
@@ -345,13 +347,23 @@ async def confirm_remove(callback: types.CallbackQuery):
              types.InlineKeyboardButton(text='Нет', callback_data=f'cancel_remove_{product_id}_{page}')]
         ]
     )
-    await callback.message.answer('Вы уверены, что хотите удалить товар из корзины?', reply_markup=kb)
+    msg = await callback.message.answer('Вы уверены, что хотите удалить товар из корзины?', reply_markup=kb)
     await callback.answer()
+    # Сохраняем id сообщения с подтверждением для удаления
+    await callback.bot.session.storage.set_data(chat=callback.message.chat.id, user=callback.from_user.id, data={"confirm_msg_id": msg.message_id})
 
 @router.callback_query(lambda c: c.data.startswith('confirm_remove_'))
 async def remove_from_cart(callback: types.CallbackQuery):
     product_id, page = callback.data.split('_')[2:]
     user_id = callback.from_user.id
+    # Удаляем сообщение с подтверждением
+    try:
+        data = await callback.bot.session.storage.get_data(chat=callback.message.chat.id, user=callback.from_user.id)
+        confirm_msg_id = data.get("confirm_msg_id")
+        if confirm_msg_id:
+            await callback.bot.delete_message(callback.message.chat.id, confirm_msg_id)
+    except Exception:
+        pass
     async with AsyncSessionLocal() as session:
         cart_result = await session.execute(select(Cart).where(Cart.user_id == user_id, Cart.product_id == int(product_id)))
         cart_item = cart_result.scalar_one_or_none()
@@ -373,6 +385,14 @@ async def remove_from_cart(callback: types.CallbackQuery):
 
 @router.callback_query(lambda c: c.data.startswith('cancel_remove_'))
 async def cancel_remove(callback: types.CallbackQuery):
+    # Удаляем сообщение с подтверждением
+    try:
+        data = await callback.bot.session.storage.get_data(chat=callback.message.chat.id, user=callback.from_user.id)
+        confirm_msg_id = data.get("confirm_msg_id")
+        if confirm_msg_id:
+            await callback.bot.delete_message(callback.message.chat.id, confirm_msg_id)
+    except Exception:
+        pass
     await callback.message.answer('Удаление отменено.')
     await callback.answer()
 
