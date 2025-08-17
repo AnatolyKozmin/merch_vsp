@@ -144,7 +144,7 @@ async def add_to_cart_with_size(callback: types.CallbackQuery, state: FSMContext
         await session.commit()
     from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
     kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары')]],
+    keyboard=[[KeyboardButton(text='Посмотреть корзину'), KeyboardButton(text='🛍️ Товары')]],
         resize_keyboard=True
     )
     await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=kb)
