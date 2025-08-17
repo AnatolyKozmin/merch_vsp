@@ -12,9 +12,9 @@ from google_sheets import add_order, remove_order
 router = Router()
 
 class CartForm(StatesGroup):
+    size = State()
     fio = State()
     phone = State()
-    size = State()
 
 PRODUCTS_PAGE_SIZE = 1
 CART_PAGE_SIZE = 1
@@ -111,56 +111,24 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
 async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
     product_id, page = callback.data.split('_')[1:]
     user_id = callback.from_user.id
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Cart).where(Cart.user_id == user_id))
-        cart_items = result.scalars().all()
-        if cart_items:
-            # Показываем клавиатуру с размерами
-            kb = types.InlineKeyboardMarkup(
-                inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_{product_id}') for size in AVAILABLE_SIZES]]
-            )
-            await callback.message.answer('Выберите размер:', reply_markup=kb)
-            await state.update_data(product_id=int(product_id), page=int(page))
-        else:
-            await state.set_state(CartForm.fio)
-            await state.update_data(product_id=int(product_id), page=int(page))
-            await callback.message.answer('Введите ФИО:')
+    # Всегда сначала спрашиваем размер
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_{product_id}') for size in AVAILABLE_SIZES]]
+    )
+    await callback.message.answer('Выберите размер:', reply_markup=kb)
+    await state.set_state(CartForm.size)
+    await state.update_data(product_id=int(product_id), page=int(page))
     await callback.answer()
 
 @router.callback_query(lambda c: c.data.startswith('size_') and c.data.endswith('_form'))
 async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
-    _, size, _ = callback.data.split('_')
+    _, size, product_id = callback.data.split('_')
     if size not in AVAILABLE_SIZES:
         await callback.answer('Недопустимый размер!')
         return
-    data = await state.get_data()
-    async with AsyncSessionLocal() as session:
-        cart_item = Cart(
-            user_id=callback.from_user.id,
-            product_id=data['product_id'],
-            size=size,
-            quantity=1
-        )
-        session.add(cart_item)
-        await session.commit()
-        product_result = await session.execute(select(Product).where(Product.id == data['product_id']))
-        product = product_result.scalar_one_or_none()
-        if product:
-            add_order(
-                user_id=callback.from_user.id,
-                username=callback.from_user.username or '',
-                product=product.name,
-                size=size,
-                color='',
-                quantity=cart_item.quantity
-            )
-        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары'), KeyboardButton(text='Инфо ℹ️')]],
-            resize_keyboard=True
-        )
-        await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=kb)
-        await state.clear()
+    await state.update_data(size=size)
+    await state.set_state(CartForm.fio)
+    await callback.message.answer('Введите ФИО:')
     await callback.answer()
 
 @router.message(CartForm.fio)
@@ -180,11 +148,34 @@ async def process_phone(message: types.Message, state: FSMContext):
         await state.clear()
         return
     await state.update_data(phone=message.text)
-    kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_form') for size in AVAILABLE_SIZES]]
-    )
-    await message.answer('Выберите размер:', reply_markup=kb)
-    # Не переводим в CartForm.size, обработка через callback
+    data = await state.get_data()
+    async with AsyncSessionLocal() as session:
+        cart_item = Cart(
+            user_id=message.from_user.id,
+            product_id=data['product_id'],
+            size=data['size'],
+            quantity=1
+        )
+        session.add(cart_item)
+        await session.commit()
+        product_result = await session.execute(select(Product).where(Product.id == data['product_id']))
+        product = product_result.scalar_one_or_none()
+        if product:
+            add_order(
+                user_id=message.from_user.id,
+                username=message.from_user.username or '',
+                product=product.name,
+                size=data['size'],
+                color='',
+                quantity=cart_item.quantity
+            )
+        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары')]],
+            resize_keyboard=True
+        )
+        await message.answer(f'Товар добавлен в корзину! Размер: {data["size"].upper()}', reply_markup=kb)
+        await state.clear()
 
 @router.callback_query(lambda c: c.data.startswith('size_') and c.data.endswith('_form'))
 async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
