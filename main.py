@@ -1,3 +1,4 @@
+
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton
@@ -7,7 +8,22 @@ from database.models import User
 from database.orders import Order, OrderItem
 from sqlalchemy import select
 from aiogram.utils.markdown import hbold, hitalic, hcode
+from dotenv import load_dotenv
+import os
+from handlers.products import router as products_router
+from handlers.admin import router as admin_router
 
+load_dotenv()
+
+API_TOKEN = os.getenv('TOKEN')
+DATABASE_URL = os.getenv('DB_URL')
+ADMIN_IDS = [int(i) for i in os.getenv('ADMIN', '').split(',') if i]
+
+logging.basicConfig(level=logging.INFO)
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher()
+dp.include_router(products_router)
+dp.include_router(admin_router)
 
 @dp.message(Command('get_nahui'))
 async def get_nahui(message: types.Message):
@@ -51,22 +67,6 @@ async def get_nahui(message: types.Message):
         if buf:
             await message.answer(buf, parse_mode='HTML')
 
-from dotenv import load_dotenv
-import os
-from handlers.products import router as products_router
-from handlers.admin import router as admin_router
-
-load_dotenv()
-
-API_TOKEN = os.getenv('TOKEN')
-DATABASE_URL = os.getenv('DB_URL')
-ADMIN_IDS = [int(i) for i in os.getenv('ADMIN', '').split(',') if i]
-
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
-dp.include_router(products_router)
-dp.include_router(admin_router)
 
 @dp.message(Command('start'))
 async def cmd_start(message: types.Message):

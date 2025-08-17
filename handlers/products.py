@@ -272,7 +272,7 @@ async def checkout_phone(message: types.Message, state: FSMContext):
                 )
             await session.delete(item)
         await session.commit()
-    await message.answer('Спасибо! Ваш заказ оформлен. Мы свяжемся с вами для подтверждения.')
+    await message.answer('Спасибо! Ваш заказ оформлен. Мы свяжемся с вами по поводу оплаты.')
     await state.clear()
 
 @router.callback_query(lambda c: c.data.startswith('cart_prev_') or c.data.startswith('cart_next_'))
