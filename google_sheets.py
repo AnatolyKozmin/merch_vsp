@@ -18,14 +18,16 @@ sh = gc.open(SPREADSHEET_NAME)
 worksheet = sh.sheet1
 
 def add_order(user_id, username, product, size, color, quantity):
+    def clean(val):
+        return str(val).replace('\n', ' ').replace('\r', ' ').strip()
     worksheet.append_row([
-        user_id,
-        username,
-        product,
-        size,
-        color,
-        quantity,
-        datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        clean(user_id),
+        clean(username),
+        clean(product),
+        clean(size),
+        clean(color),
+        clean(quantity),
+        clean(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     ])
 
 def remove_order(user_id, product, size, color):

@@ -46,7 +46,8 @@ async def show_products(message: types.Message, state: FSMContext):
         caption_text = f"<b>{product.name}</b>\n"
         caption_text += f"<b>Цена:</b> {product.price}\n"
         if product.caption:
-            caption_text += f"<i>{product.caption}</i>"
+            caption_text += f"<i>{product.caption}</i>\n"
+        caption_text += "\n<i>Для просмотра товаров пользуйтесь стрелочками ⬅️➡️</i>"
         await message.answer_photo(
             photo=product.photo or 'https://via.placeholder.com/300',
             caption=caption_text,
@@ -89,18 +90,21 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
         caption_text = f"<b>{product.name}</b>\n"
         caption_text += f"<b>Цена:</b> {product.price}\n"
         if product.caption:
-            caption_text += f"<i>{product.caption}</i>"
+            caption_text += f"<i>{product.caption}</i>\n"
+        caption_text += "\n<i>Для просмотра товаров пользуйтесь стрелочками ⬅️➡️</i>"
         media = types.InputMediaPhoto(
             media=product.photo or 'https://via.placeholder.com/300',
             caption=caption_text,
             parse_mode='HTML'
         )
-        await callback.message.edit_media(media, reply_markup=builder.as_markup())
-        # Добавляем подсказку под фото
-        await callback.message.answer(
-            '<i>Для просмотра товаров пользуйтесь стрелочками ⬅️➡️</i>',
-            parse_mode='HTML'
-        )
+        try:
+            await callback.message.edit_media(media, reply_markup=builder.as_markup())
+        except Exception as e:
+            from aiogram.exceptions import TelegramBadRequest
+            if isinstance(e, TelegramBadRequest) and 'message is not modified' in str(e):
+                pass  # Просто игнорируем, если ничего не изменилось
+            else:
+                raise
     await callback.answer()
 
 @router.callback_query(lambda c: c.data.startswith('add_'))
@@ -150,7 +154,12 @@ async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
                 color='',
                 quantity=cart_item.quantity
             )
-        await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=types.ReplyKeyboardRemove())
+        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+        kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары'), KeyboardButton(text='Инфо ℹ️')]],
+            resize_keyboard=True
+        )
+        await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=kb)
         await state.clear()
     await callback.answer()
 
