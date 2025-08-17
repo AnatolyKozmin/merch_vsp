@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 import datetime
 
 Base = declarative_base()
+from .orders import Order, OrderItem
 
 class User(Base):
     __tablename__ = 'users'

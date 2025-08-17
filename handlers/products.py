@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from database.db import AsyncSessionLocal
 from database.models import Product, Cart
+from database.orders import Order, OrderItem
 from sqlalchemy import select
 from aiogram.filters import Command
 from aiogram.types import InputMediaPhoto
@@ -111,9 +112,12 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
                 raise
     await callback.answer()
 
-@router.callback_query(lambda c: c.data.startswith('add_'))
+@router.callback_query(lambda c: c.data.startswith('add_') and not c.data.startswith('add_size_'))
 async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
     parts = callback.data.split('_')
+    if len(parts) < 3:
+        await callback.answer('Ошибка данных!')
+        return
     product_id = parts[-2]
     page = parts[-1]
     user_id = callback.from_user.id
@@ -231,10 +235,33 @@ async def checkout_phone(message: types.Message, state: FSMContext):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Cart).where(Cart.user_id == user_id))
         cart_items = result.scalars().all()
+        if not cart_items:
+            await message.answer('Ваша корзина пуста.')
+            await state.clear()
+            return
+        # Создаём заказ
+        order = Order(
+            user_id=user_id,
+            username=message.from_user.username or '',
+            fio=data.get('fio', ''),
+            phone=data.get('phone', '')
+        )
+        session.add(order)
+        await session.flush()  # чтобы получить order.id
         for item in cart_items:
             product_result = await session.execute(select(Product).where(Product.id == item.product_id))
             product = product_result.scalar_one_or_none()
             if product:
+                order_item = OrderItem(
+                    order_id=order.id,
+                    product_id=product.id,
+                    product_name=product.name,
+                    size=item.size or '',
+                    color=item.color or '',
+                    quantity=item.quantity,
+                    price=product.price
+                )
+                session.add(order_item)
                 add_order(
                     user_id=user_id,
                     username=message.from_user.username or '',
