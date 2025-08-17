@@ -7,11 +7,7 @@ from database.models import User
 from database.orders import Order, OrderItem
 from sqlalchemy import select
 from aiogram.utils.markdown import hbold, hitalic, hcode
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
-dp.include_router(products_router)
-dp.include_router(admin_router)
+
 
 @dp.message(Command('get_nahui'))
 async def get_nahui(message: types.Message):
@@ -54,6 +50,7 @@ async def get_nahui(message: types.Message):
             buf += part + '\n'
         if buf:
             await message.answer(buf, parse_mode='HTML')
+
 from dotenv import load_dotenv
 import os
 from handlers.products import router as products_router
