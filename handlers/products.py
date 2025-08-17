@@ -9,10 +9,9 @@ from sqlalchemy import select
 from aiogram.filters import Command
 from aiogram.types import InputMediaPhoto
 from google_sheets import add_order, remove_order
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
- # --- Новые обработчики корзины ---
-
-
+# --- Новые обработчики корзины ---
 
 # --- Новые обработчики корзины ---
 router = Router()
@@ -24,6 +23,11 @@ class CartForm(StatesGroup):
 PRODUCTS_PAGE_SIZE = 1
 CART_PAGE_SIZE = 1
 AVAILABLE_SIZES = ['s', 'm', 'l', 'xl', '2xl']
+
+main_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары'), KeyboardButton(text='Посмотреть корзину')]],
+    resize_keyboard=True
+)
 
 @router.message(lambda msg: msg.text == '🛍️ Товары')
 async def show_products(message: types.Message, state: FSMContext):
@@ -142,12 +146,7 @@ async def add_to_cart_with_size(callback: types.CallbackQuery, state: FSMContext
         )
         session.add(cart_item)
         await session.commit()
-    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-    kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text='Посмотреть корзину'), KeyboardButton(text='🛍️ Товары')]],
-        resize_keyboard=True
-    )
-    await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=kb)
+    await callback.message.answer(f'Товар добавлен в корзину! Размер: {size.upper()}', reply_markup=main_kb)
     await callback.answer()
 
 
@@ -191,7 +190,7 @@ async def show_orders_history(message: types.Message, state: FSMContext):
         result = await session.execute(select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc()))
         orders = result.scalars().all()
         if not orders:
-            await message.answer('У вас нет оформленных заказов.')
+            await message.answer('У вас нет оформленных заказов.', reply_markup=main_kb)
             return
         for order in orders:
             items_result = await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))
@@ -216,7 +215,7 @@ async def show_cart(message: types.Message, state: FSMContext):
         result = await session.execute(select(Cart).where(Cart.user_id == message.from_user.id).offset(page * CART_PAGE_SIZE).limit(CART_PAGE_SIZE))
         cart_items = result.scalars().all()
         if not cart_items:
-            await message.answer('Ваша корзина пуста.')
+            await message.answer('Ваша корзина пуста.', reply_markup=main_kb)
             return
         item = cart_items[0]
         product_result = await session.execute(select(Product).where(Product.id == item.product_id))
@@ -267,12 +266,12 @@ async def delete_order_confirmed(callback: types.CallbackQuery, state: FSMContex
             return
         await session.delete(order)
         await session.commit()
-    await callback.message.answer('Заказ удалён из истории.')
+    await callback.message.answer('Заказ удалён из истории.', reply_markup=main_kb)
     await callback.answer()
 
 @router.callback_query(lambda c: c.data == 'cancel_delete_order')
 async def cancel_delete_order(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer('Удаление заказа отменено.')
+    await callback.message.answer('Удаление заказа отменено.', reply_markup=main_kb)
     await callback.answer()
 # Оформление заказа через корзину
 @router.callback_query(lambda c: c.data == 'checkout')
@@ -332,12 +331,7 @@ async def checkout_phone(message: types.Message, state: FSMContext):
                 )
             await session.delete(item)
         await session.commit()
-    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text='Посмотреть корзину'), KeyboardButton(text='🛍️ Товары')]],
-        resize_keyboard=True
-    )
-    await message.answer('Спасибо! Ваш заказ оформлен. Мы свяжемся с вами по поводу оплаты.', reply_markup=kb)
+    await message.answer('Спасибо! Ваш заказ оформлен. Мы свяжемся с вами по поводу оплаты.', reply_markup=main_kb)
     await state.clear()
 
 @router.callback_query(lambda c: c.data.startswith('cart_prev_') or c.data.startswith('cart_next_'))
@@ -401,7 +395,7 @@ async def cart_del(callback: types.CallbackQuery, state: FSMContext):
                 )
             await session.delete(cart_item)
             await session.commit()
-            await callback.message.answer('Товар удалён из корзины.')
+            await callback.message.answer('Товар удалён из корзины.', reply_markup=main_kb)
     await show_cart(callback.message, state)
     await callback.answer()
 
@@ -472,7 +466,7 @@ async def remove_from_cart(callback: types.CallbackQuery):
                     size=cart_item.size,
                     color=cart_item.color or ''
                 )
-            await callback.message.answer('Товар удалён из корзины.')
+            await callback.message.answer('Товар удалён из корзины.', reply_markup=main_kb)
     await callback.answer()
 
 @router.callback_query(lambda c: c.data.startswith('cancel_remove_'))
@@ -485,6 +479,6 @@ async def cancel_remove(callback: types.CallbackQuery):
             await callback.bot.delete_message(callback.message.chat.id, confirm_msg_id)
     except Exception:
         pass
-    await callback.message.answer('Удаление отменено.')
+    await callback.message.answer('Удаление отменено.', reply_markup=main_kb)
     await callback.answer()
 
