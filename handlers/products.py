@@ -182,6 +182,33 @@ async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
         await state.clear()
     await callback.answer()
 
+
+# --- История заказов по кнопке "Посмотреть корзину" ---
+@router.message(lambda msg: msg.text == 'Посмотреть корзину')
+async def show_orders_history(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc()))
+        orders = result.scalars().all()
+        if not orders:
+            await message.answer('У вас нет оформленных заказов.')
+            return
+        for order in orders:
+            items_result = await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))
+            items = items_result.scalars().all()
+            text = f'<b>Заказ №{order.id}</b> от {order.created_at.strftime("%d.%m.%Y %H:%M")}\n'
+            text += f'ФИО: {order.fio or "-"}\nТелефон: {order.phone or "-"}\n'
+            text += '\n<b>Товары:</b>\n'
+            for idx, item in enumerate(items, 1):
+                text += f'{idx}. {item.product_name} — {item.size or "-"}, {item.color or "-"}, {item.quantity} шт., {item.price}₽\n'
+            kb = types.InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [types.InlineKeyboardButton(text='❌ Удалить заказ', callback_data=f'delete_order_{order.id}')]
+                ]
+            )
+            await message.answer(text, reply_markup=kb, parse_mode='HTML')
+
+# --- Старая корзина по кнопке "🛒 Корзина" ---
 @router.message(lambda msg: msg.text == '🛒 Корзина')
 async def show_cart(message: types.Message, state: FSMContext):
     page = 0
@@ -214,6 +241,39 @@ async def show_cart(message: types.Message, state: FSMContext):
                 reply_markup=builder.as_markup(),
                 parse_mode='HTML'
             )
+# --- Удаление заказа из истории ---
+
+# --- Подтверждение удаления заказа ---
+@router.callback_query(lambda c: c.data.startswith('delete_order_'))
+async def confirm_delete_order(callback: types.CallbackQuery, state: FSMContext):
+    order_id = int(callback.data.split('_')[-1])
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text='Да, удалить', callback_data=f'confirm_delete_order_{order_id}'),
+             types.InlineKeyboardButton(text='Отмена', callback_data='cancel_delete_order')]
+        ]
+    )
+    await callback.message.answer('Вы уверены, что хотите удалить этот заказ из истории?', reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data.startswith('confirm_delete_order_'))
+async def delete_order_confirmed(callback: types.CallbackQuery, state: FSMContext):
+    order_id = int(callback.data.split('_')[-1])
+    user_id = callback.from_user.id
+    async with AsyncSessionLocal() as session:
+        order = await session.get(Order, order_id)
+        if not order or order.user_id != user_id:
+            await callback.answer('Нет доступа или заказ не найден.', show_alert=True)
+            return
+        await session.delete(order)
+        await session.commit()
+    await callback.message.answer('Заказ удалён из истории.')
+    await callback.answer()
+
+@router.callback_query(lambda c: c.data == 'cancel_delete_order')
+async def cancel_delete_order(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer('Удаление заказа отменено.')
+    await callback.answer()
 # Оформление заказа через корзину
 @router.callback_query(lambda c: c.data == 'checkout')
 async def checkout_start(callback: types.CallbackQuery, state: FSMContext):
