@@ -378,15 +378,3 @@ async def cancel_remove(callback: types.CallbackQuery):
     await callback.message.answer('Удаление отменено.')
     await callback.answer()
 
-@router.message(lambda msg: msg.text == 'Инфо ℹ️')
-async def info_menu(message: types.Message):
-    text = (
-        'ℹ️ <b>Инфо</b>\n\n'
-        'В этом чат-боте вы можете сделать <b>предзаказ</b> на мерч фестиваля «Вспышка».\n'
-        'Добавив товар в корзину, вы оформляете предзаказ, после чего в течение недели вам придет ссылка на оплату.\n\n'
-        'Для просмотра товаров рекомендуем нажать на кнопку <b>Товары</b> и воспользоваться стрелочками для перелистывания.\n\n'
-        'Вопрос <b>доставки</b> будет решаться в индивидуальном порядке: либо самовывоз, либо оформление через Яндекс.\n\n'
-        'По вопросам работы бота обращаться к <a href="https://t.me/yanejettt">@yanejettt</a>' \
-        'По вопросам заказа обращаться к @shamonova_a'
-    )
-    await message.answer(text, parse_mode='HTML')
