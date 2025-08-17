@@ -9,10 +9,14 @@ from aiogram.filters import Command
 from aiogram.types import InputMediaPhoto
 from google_sheets import add_order, remove_order
 
+ # --- Новые обработчики корзины ---
+
+
+
+# --- Новые обработчики корзины ---
 router = Router()
 
 class CartForm(StatesGroup):
-    size = State()
     fio = State()
     phone = State()
 
@@ -111,71 +115,24 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
 async def add_to_cart(callback: types.CallbackQuery, state: FSMContext):
     product_id, page = callback.data.split('_')[1:]
     user_id = callback.from_user.id
-    # Всегда сначала спрашиваем размер
-    kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[types.InlineKeyboardButton(text=size.upper(), callback_data=f'size_{size}_form') for size in AVAILABLE_SIZES]]
-    )
-    await callback.message.answer('Выберите размер:', reply_markup=kb)
-    await state.set_state(CartForm.size)
-    await state.update_data(product_id=int(product_id), page=int(page))
-    await callback.answer()
-
-@router.callback_query(lambda c: c.data.startswith('size_') and c.data.endswith('_form'))
-async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
-    _, size, product_id = callback.data.split('_')
-    if size not in AVAILABLE_SIZES:
-        await callback.answer('Недопустимый размер!')
-        return
-    await state.update_data(size=size)
-    await state.set_state(CartForm.fio)
-    await callback.message.answer('Введите ФИО:')
-    await callback.answer()
-
-@router.message(CartForm.fio)
-async def process_fio(message: types.Message, state: FSMContext):
-    kb = types.ReplyKeyboardMarkup(
-        keyboard=[[types.KeyboardButton(text='Отмена')]],
-        resize_keyboard=True
-    )
-    await state.update_data(fio=message.text)
-    await message.answer('Введите номер телефона:', reply_markup=kb)
-    await state.set_state(CartForm.phone)
-
-@router.message(CartForm.phone)
-async def process_phone(message: types.Message, state: FSMContext):
-    if message.text == 'Отмена':
-        await message.answer('Добавление товара отменено.', reply_markup=types.ReplyKeyboardRemove())
-        await state.clear()
-        return
-    await state.update_data(phone=message.text)
-    data = await state.get_data()
+    # Просто добавляем товар в корзину без сбора данных
     async with AsyncSessionLocal() as session:
         cart_item = Cart(
-            user_id=message.from_user.id,
-            product_id=data['product_id'],
-            size=data['size'],
+            user_id=user_id,
+            product_id=int(product_id),
+            size=None,
             quantity=1
         )
         session.add(cart_item)
         await session.commit()
-        product_result = await session.execute(select(Product).where(Product.id == data['product_id']))
-        product = product_result.scalar_one_or_none()
-        if product:
-            add_order(
-                user_id=message.from_user.id,
-                username=message.from_user.username or '',
-                product=product.name,
-                size=data['size'],
-                color='',
-                quantity=cart_item.quantity
-            )
-        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары')]],
-            resize_keyboard=True
-        )
-        await message.answer(f'Товар добавлен в корзину! Размер: {data["size"].upper()}', reply_markup=kb)
-        await state.clear()
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары')]],
+        resize_keyboard=True
+    )
+    await callback.message.answer('Товар добавлен в корзину!', reply_markup=kb)
+    await callback.answer()
+
 
 @router.callback_query(lambda c: c.data.startswith('size_') and c.data.endswith('_form'))
 async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
@@ -226,8 +183,9 @@ async def show_cart(message: types.Message, state: FSMContext):
             builder.button(text='🗑️ Удалить', callback_data=f'cart_del_{item.id}_{page}')
             builder.button(text='➡️', callback_data=f'cart_next_{page}')
             builder.adjust(3)
+            builder.row(types.InlineKeyboardButton(text='Оформить заказ', callback_data='checkout'))
             caption_text = f"<b>{product.name}</b>\n"
-            caption_text += f"<b>Размер:</b> {item.size}\n"
+            caption_text += f"<b>Размер:</b> {item.size or 'Не выбран'}\n"
             caption_text += f"<b>Цвет:</b> {item.color or 'Не выбран'}\n"
             caption_text += f"<b>Количество:</b> {item.quantity}\n"
             caption_text += f"<b>Цена:</b> {product.price}\n"
@@ -239,6 +197,43 @@ async def show_cart(message: types.Message, state: FSMContext):
                 reply_markup=builder.as_markup(),
                 parse_mode='HTML'
             )
+# Оформление заказа через корзину
+@router.callback_query(lambda c: c.data == 'checkout')
+async def checkout_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(CartForm.fio)
+    await callback.message.answer('Введите ФИО для оформления заказа:')
+    await callback.answer()
+
+@router.message(CartForm.fio)
+async def checkout_fio(message: types.Message, state: FSMContext):
+    await state.update_data(fio=message.text)
+    await state.set_state(CartForm.phone)
+    await message.answer('Введите номер телефона:')
+
+@router.message(CartForm.phone)
+async def checkout_phone(message: types.Message, state: FSMContext):
+    await state.update_data(phone=message.text)
+    data = await state.get_data()
+    user_id = message.from_user.id
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Cart).where(Cart.user_id == user_id))
+        cart_items = result.scalars().all()
+        for item in cart_items:
+            product_result = await session.execute(select(Product).where(Product.id == item.product_id))
+            product = product_result.scalar_one_or_none()
+            if product:
+                add_order(
+                    user_id=user_id,
+                    username=message.from_user.username or '',
+                    product=product.name,
+                    size=item.size or '',
+                    color=item.color or '',
+                    quantity=item.quantity
+                )
+            await session.delete(item)
+        await session.commit()
+    await message.answer('Спасибо! Ваш заказ оформлен. Мы свяжемся с вами для подтверждения.')
+    await state.clear()
 
 @router.callback_query(lambda c: c.data.startswith('cart_prev_') or c.data.startswith('cart_next_'))
 async def paginate_cart(callback: types.CallbackQuery, state: FSMContext):
