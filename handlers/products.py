@@ -25,7 +25,11 @@ CART_PAGE_SIZE = 1
 AVAILABLE_SIZES = ['s', 'm', 'l', 'xl', '2xl']
 
 main_kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text='🛒 Корзина'), KeyboardButton(text='🛍️ Товары'), KeyboardButton(text='Посмотреть корзину')]],
+    keyboard=[
+        [KeyboardButton(text='🛒 Корзина')],
+        [KeyboardButton(text='🛍️ Товары')],
+        [KeyboardButton(text='Посмотреть корзины')]
+    ],
     resize_keyboard=True
 )
 
@@ -183,7 +187,7 @@ async def select_size_form(callback: types.CallbackQuery, state: FSMContext):
 
 
 # --- История заказов по кнопке "Посмотреть корзину" ---
-@router.message(lambda msg: msg.text == 'Посмотреть корзину')
+@router.message(lambda msg: msg.text == 'Посмотреть корзины')
 async def show_orders_history(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     async with AsyncSessionLocal() as session:
