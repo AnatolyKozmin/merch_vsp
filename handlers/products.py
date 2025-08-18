@@ -44,7 +44,6 @@ async def show_products(message: types.Message, state: FSMContext):
             await message.answer('Товары не найдены')
             return
         product = products[0]
-        # Проверяем, есть ли товар в корзине
         cart_result = await session.execute(select(Cart).where(Cart.user_id == user_id, Cart.product_id == product.id))
         in_cart = cart_result.scalar_one_or_none() is not None
         builder = InlineKeyboardBuilder()
@@ -92,13 +91,12 @@ async def paginate_products(callback: types.CallbackQuery, state: FSMContext):
         cart_result = await session.execute(select(Cart).where(Cart.user_id == user_id, Cart.product_id == product.id))
         in_cart = cart_result.scalar_one_or_none() is not None
         builder = InlineKeyboardBuilder()
-        builder.button(text='⬅️', callback_data=f'prev_{page}')
+        builder.row(types.InlineKeyboardButton(text='⬅️', callback_data=f'prev_{page}'))
         if in_cart:
-            builder.button(text='❌', callback_data=f'remove_{product.id}_{page}')
+            builder.row(types.InlineKeyboardButton(text='❌', callback_data=f'remove_{product.id}_{page}'))
         else:
-            builder.button(text='✅', callback_data=f'add_{product.id}_{page}')
-        builder.button(text='➡️', callback_data=f'next_{page}')
-        builder.adjust(3)
+            builder.row(types.InlineKeyboardButton(text='✅', callback_data=f'add_{product.id}_{page}'))
+        builder.row(types.InlineKeyboardButton(text='➡️', callback_data=f'next_{page}'))
         builder.row(types.InlineKeyboardButton(text='Размерная сетка', callback_data='size_setka'))
         caption_text = f"<b>{product.name}</b>\n"
         caption_text += f"<b>Цена:</b> {product.price}\n"
